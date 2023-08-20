@@ -1,0 +1,51 @@
+name: release
+
+on:
+  push:
+    tags:
+      - '*'
+  workflow_dispatch:
+
+jobs:
+  build_release:
+    name: build_release
+    runs-on: ubuntu-latest
+    steps:
+      - name: GIT checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - name: Read version from manifest.json
+        run: echo "VERSION=$(grep '"version":' manifest.json | tr --delete '" ,' | sed 's/version://')" >> $GITHUB_OUTPUT
+        id: version
+      - name: Build changelog since last tag
+        id: changelog
+        run: |
+          r=$(git log --oneline $(git describe --tags --abbrev=0 @^)..@)
+          r="${r//'%'/'%25'}"   # Multiline escape sequences for %
+          r="${r//$'\n'/'%0A'}" # Multiline escape sequences for '\n'
+          r="${r//$'\r'/'%0D'}" # Multiline escape sequences for '\r'
+          echo "CHANGELOG=$r" >> $GITHUB_OUTPUT
+          echo "$r" > Changelog.tmp
+      - name: Build artifacts
+        run:  make xpi
+      - name: Create release
+        uses: actions/create-release@v1
+        id: create_release
+        with:
+          draft: false
+          prerelease: false
+          release_name: ${{ steps.version.outputs.VERSION }}
+          tag_name: ${{ github.ref }}
+          body_path: Changelog.tmp
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+      - name: Upload artifact
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: ReplyWithHeaderMozilla-${{ steps.version.outputs.VERSION }}.xpi
+          asset_name: ReplyWithHeaderMozilla-${{ steps.version.outputs.VERSION }}.xpi
+          tag: ${{ github.ref }}
+          overwrite: true
+          body: ${{ steps.changelog.outputs.CHANGELOG }}
